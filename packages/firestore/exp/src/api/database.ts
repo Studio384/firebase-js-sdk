@@ -51,14 +51,21 @@ import {
   setOfflineComponentProvider,
   setOnlineComponentProvider
 } from './components';
-
 import { DEFAULT_HOST, DEFAULT_SSL } from '../../../lite/src/api/components';
 import { DatabaseInfo } from '../../../src/core/database_info';
 import { AutoId } from '../../../src/util/misc';
 import { User } from '../../../src/auth/user';
 import { CredentialChangeListener } from '../../../src/api/credentials';
 import { logDebug } from '../../../src/util/log';
-import { registerPendingWritesCallback } from '../../../src/core/sync_engine';
+import {
+  fillWritePipeline,
+  remoteStoreDisableNetwork,
+  remoteStoreEnableNetwork
+} from '../../../src/remote/remote_store';
+import {
+  ensureWriteCallbacks,
+  registerPendingWritesCallback
+} from '../../../src/core/sync_engine';
 
 const LOG_TAG = 'Firestore';
 
@@ -205,9 +212,14 @@ export function enableIndexedDbPersistence(
   // `getOnlineComponentProvider()`
   const settings = firestoreImpl._getSettings();
 
-  return firestoreImpl._queue.enqueue(() =>
+  const onlineComponentProvider = new OnlineComponentProvider();
+  const offlineComponentProvider = new IndexedDbOfflineComponentProvider(
+    onlineComponentProvider
+  );
+
+  return firestoreImpl._queue.enqueue(async () => {
     // TODO(firestoreexp): Add forceOwningTab
-    setOfflineComponentProvider(
+    await setOfflineComponentProvider(
       firestoreImpl,
       {
         durable: true,
@@ -216,9 +228,10 @@ export function enableIndexedDbPersistence(
           settings.cacheSizeBytes || LruParams.DEFAULT_CACHE_SIZE_BYTES,
         forceOwningTab: false
       },
-      new IndexedDbOfflineComponentProvider()
-    )
-  );
+      offlineComponentProvider
+    );
+    await setOnlineComponentProvider(firestoreImpl, onlineComponentProvider);
+  });
 }
 
 export function enableMultiTabIndexedDbPersistence(
@@ -306,7 +319,7 @@ export function enableNetwork(
     const remoteStore = await getRemoteStore(firestoreImpl);
     const persistence = await getPersistence(firestoreImpl);
     persistence.setNetworkEnabled(true);
-    return remoteStore.enableNetwork();
+    return remoteStoreEnableNetwork(remoteStore);
   });
 }
 
@@ -320,7 +333,7 @@ export function disableNetwork(
     const remoteStore = await getRemoteStore(firestoreImpl);
     const persistence = await getPersistence(firestoreImpl);
     persistence.setNetworkEnabled(false);
-    return remoteStore.disableNetwork();
+    return remoteStoreDisableNetwork(remoteStore);
   });
 }
 
